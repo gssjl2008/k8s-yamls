@@ -1,0 +1,426 @@
+
+
+---
+# 创建configMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prom-defi-config
+  namespace: ops
+data:
+  prometheus.yaml: |
+    global:
+      scrape_interval: 20s
+      scrape_timeout: 20s
+      evaluation_interval: 15s
+      external_labels:
+        area: ningbo
+    alerting:
+      alertmanagers:
+      - static_configs:
+        - targets: ["alertmanager:9093"]
+    rule_files:
+    - /etc/prometheus/alert-rules.yaml
+    scrape_configs:
+    - job_name: consul
+      consul_sd_configs:
+      - server: "consul:8500"
+        services: []
+      relabel_configs:
+      - source_labels: [__meta_consul_service_metadata_persistence]
+        regex: .*test.*
+        action: keep
+      - regex: __meta_consul_service_metadata_(.+)
+        action: labelmap
+      - regex: __meta_consul_service_(id)
+        replacement: $1
+        action: labelmap
+
+    remote_write:
+    - url: "http://prom2click:9201/write"
+    remote_read:
+    - url: "http://prom2click:9201/read"
+        
+  alert-rules.yaml: |-
+    groups:
+    - name: node_alerts
+      rules:
+      - alert: HighNodeCpu
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 50
+        for: 1m
+        labels:
+          serverity: warning
+        annotations:
+          summary: "High Node Cpu on {{ $labels.instance }} "
+          console: "Just for Test"
+      - alert: Node_Can_not_connect
+        expr: up{job != "consul"} < 1
+        for: 1m
+        labels:
+          serverity: warning
+        annotations:
+          summary: "{{ $labels.instance }} can not connected!"
+      - alert: DiskWillFillIn7Days
+        expr: predict_linear(node_filesystem_free_bytes[1d], 7 * 3600) < 0
+        for: 1m
+        labels:
+          serverity: warning
+        annotations:
+          summary: "{{ $labels.instance }} disk will be fill full on 7 days"
+      - alert: MemoryUsageThan90
+        expr: container_memory_working_set_bytes{container!="",container!="POD", namespace !~ "cattle-syste|ingress-nginx|fleet-system|cattle-system|kube-system|default", pod !~ "mysql.*"} / container_spec_memory_limit_bytes{container!="",container!="POD", namespace !~ "cattle-syste|ingress-nginx|fleet-system|cattle-system|kube-system|default",pod !~ "mysql.*"}  > 0.9
+        for: 1m
+        labels: 
+          serverity: warning
+          cluster: k8s
+        annotations:
+          summary: "{{ $labels.pod }} memory used more than 90%"
+      - alert: 剩余存储量低于1%报警
+        expr: remain / max_storage < 0.01
+        for: 1m
+        labels:
+          serverity: critial
+        annotations:
+          summary: "{{ $labels.currency }} 剩余存储量不足1%"   
+      - alert: apy 低于 5%
+        expr: apy/100 < 5
+        for: 1m
+        labels:
+          serverity: warning
+        annotations:
+          summary: "{{ $labels.currency }} apy 低于 5% "
+      - alert: 平衡配比大于5
+        expr: (balance0 * scalar(1/(current_price{currency="USDT"}/1e18))) / (balance1 * current_price * scalar(1/(current_price{currency="USDT"}/1e18)) / 1e18 ) > 5
+        for: 1m
+        labels:
+          serverity: warning
+        annotations:
+          summary: "{{ $labels.currency }} 平衡配比大于 5"
+      - alert: 平衡配比小于0.2
+        expr: (balance0 * scalar(1/(current_price{currency="USDT"}/1e18))) / (balance1 * current_price * scalar(1/(current_price{currency="USDT"}/1e18)) / 1e18 ) < 0.2
+        for: 1m
+        labels:
+          serverity: warning
+        annotations:
+          summary: "{{ $labels.currency }} 平衡配比小于 0.2" 
+      - alert: 当前价格波动超过5%
+        expr: abs(((current_price offset 1m ) - current_price )) / (current_price offset 1m ) * 100 > 5
+        for: 1m
+        labels:
+          serverity: warning
+        annotations:
+          summary: "{{ $labels.currency }} 当前价格波动超过 5%"
+      - alert: token0 收益为0
+        expr: profit0 * scalar(1/(current_price{currency="USDT"}/1e18)) / 1e18 == 0
+        for: 1m
+        labels:
+          serverity: warning
+        annotations:
+          summary: "{{ $labels.currency }} token0 收益为0 "
+      - alert: token1 收益为0
+        expr: profit1 * scalar(1/(current_price{currency="USDT"}/1e18)) / 1e18 == 0
+        for: 1m
+        labels:
+          serverity: warning
+        annotations:
+          summary: "{{ $labels.currency }} token0 收益为0 "
+      # - alert: 测试告警邮件
+      #   expr: remain
+      #   for: 1m
+      #   labels:
+      #     serverity: warning
+      #   annotations:
+      #     summary: "{{ $labels.currency }} 测试告警邮件，请忽视! "
+
+
+---
+# 创建service, 使用NodePort访问
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: ops
+spec:
+  type: NodePort
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+    nodePort: 30090
+
+---
+# 创建deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: ops
+spec:
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: monitor
+      containers:
+      - name: prometheus
+        image: prom/prometheus
+        args:
+        - '--storage.tsdb.retention=15d'
+        - '--config.file=/etc/prometheus/prometheus.yaml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--web.enable-lifecycle'
+        - '--web.enable-admin-api'
+        - '--log.level=debug'
+        resources:
+          limits:
+            memory: "2048Mi"
+            cpu: "1000m"
+        ports:
+        - containerPort: 9090
+          name: webui
+        volumeMounts:
+          - mountPath: /prometheus
+            name: data
+          - mountPath: /etc/prometheus
+            name: config
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: prometheus-data
+      - name: config
+        configMap:
+          name: prometheus-config
+
+---
+# 创建存储pvc
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: ops
+spec:
+  resources:
+    requests:
+      storage: 100Gi
+  volumeMode: Filesystem
+  storageClassName: "managed-nfs-storage"
+  accessModes:
+    - ReadWriteOnce
+
+# 部署kube-stats-metrics
+---
+# 增加rbac
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/version: 2.0.0
+  name: kube-state-metrics
+  namespace: ops
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/version: 2.0.0
+  name: kube-state-metrics
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - nodes
+  - pods
+  - services
+  - resourcequotas
+  - replicationcontrollers
+  - limitranges
+  - persistentvolumeclaims
+  - persistentvolumes
+  - namespaces
+  - endpoints
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  - daemonsets
+  - deployments
+  - replicasets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  - jobs
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  - volumeattachments
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  - ingresses
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - list
+  - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/version: 2.0.0
+  name: kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-state-metrics
+subjects:
+- kind: ServiceAccount
+  name: kube-state-metrics
+  namespace: ops
+
+---
+# kube-state-metrics service
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/version: 2.0.0
+  name: kube-state-metrics
+  namespace: ops
+spec:
+  clusterIP: None
+  ports:
+  - name: http-metrics
+    port: 8080
+    targetPort: http-metrics
+  - name: telemetry
+    port: 8081
+    targetPort: telemetry
+  selector:
+    app.kubernetes.io/name: kube-state-metrics
+
+---
+# 部署deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/version: 2.0.0
+  name: kube-state-metrics
+  namespace: ops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-state-metrics
+        app.kubernetes.io/version: 2.0.0
+    spec:
+      containers:
+      - image: k8s.gcr.io/kube-state-metrics/kube-state-metrics:v2.0.0
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+        name: kube-state-metrics
+        ports:
+        - containerPort: 8080
+          name: http-metrics
+        - containerPort: 8081
+          name: telemetry
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8081
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+        securityContext:
+          runAsUser: 65534
+        resources:
+          limits:
+            cpu: "100m"
+            memory: "200Mi"
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: kube-state-metrics
+

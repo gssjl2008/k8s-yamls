@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickhouse
+  namespace: ops
+spec:
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+      - name: clickhouse
+        image: yandex/clickhouse-server
+        resources:
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        ports:
+        - name: http
+          containerPort: 8123
+        - name: client
+          containerPort: 9000
+        - name: interserver
+          containerPort: 9009
+        volumeMounts:
+          - name: config
+            mountPath: /etc/clickhouse-server
+          - name: data
+            mountPath: /var/lib/clickhouse
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: clickhouse-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: clickhouse-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-svc
+  namespace: ops
+spec:
+  type: NodePort
+  selector:
+    app: clickhouse
+  ports:
+  - port: 8123
+    targetPort: 8123
+    nodePort: 38123
+    name: http
+  - port: 9000
+    targetPort: 9000
+    nodePort: 39000
+    name: client
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clickhouse-config
+spec:
+  resources:
+    requests:
+      storage: 1G
+  volumeMode: Filesystem
+  storageClassName: "managed-nfs-storage"
+  accessModes:
+    - ReadWriteOnce
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clickhouse-data
+spec:
+  resources:
+    requests:
+      storage: 100Gi
+  volumeMode: Filesystem
+  storageClassName: "managed-nfs-storage"
+  accessModes:
+    - ReadWriteOnce
+

@@ -1,0 +1,91 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ldap-pv
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 50Gi
+  nfs:
+    path: /data/rancher/ldap
+    server: 192.168.50.101
+  persistentVolumeReclaimPolicy: Retain
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ldap-pvc
+  namespace: public-service
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: public-service
+  name: ldap
+  labels:
+    app: ldap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ldap
+  template:
+    metadata:
+      labels:
+        app: ldap
+    spec:
+      containers:
+        - name: ldap
+          image: osixia/openldap:1.2.2
+          args: ["--copy-service"]
+          volumeMounts:
+            - name: ldap-data
+              mountPath: /var/lib/ldap
+              subPath: data
+            - name: ldap-data
+              mountPath: /etc/ldap/slapd.d
+              subPath: config
+            - name: ldap-data
+              mountPath: /container/service/slapd/assets/certs
+              subPath: certs
+            - name: secret-volume
+              mountPath: /container/environment/01-custom
+            - name: container-run
+              mountPath: /container/run
+          ports:
+            - containerPort: 389
+              name: openldap
+            - name: ssl-ldap-port
+              containerPort: 636
+          livenessProbe:
+            tcpSocket:
+              port: openldap
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 10
+          readinessProbe:
+            tcpSocket:
+              port: openldap
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 10
+      volumes:
+        - name: ldap-data
+          persistentVolumeClaim:
+            claimName: ldap-pvc
+        - name: "secret-volume"
+          secret:
+            secretName: "ldap-secret"
+        - name: container-run
+          emptyDir: {}
+

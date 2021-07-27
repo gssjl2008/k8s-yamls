@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jumpserver
+  namespace: public-service
+spec:
+  selector:
+    matchLabels:
+      app: jumpserver
+  template:
+    metadata:
+      labels:
+        app: jumpserver
+    spec:
+      containers:
+      - name: jumpserver
+        image: jumpserver/jms_all
+        resources:
+          limits:
+            memory: "4096Mi"
+            cpu: "2000m"
+        ports:
+        - containerPort: 80
+          name: web
+        - containerPort: 2222
+          name: ssh
+        envFrom:
+          - configMapRef:
+              name: jumpserver
+        volumeMounts:
+        - name: data
+          mountPath: /opt/jumpserver/data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: jumpserver
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jumpserver
+  namespace: public-service
+spec:
+  type: NodePort
+  selector:
+    app: jumpserver
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30084
+    name: web
+  - port: 2222
+    targetPort: 2222
+    nodePort: 32222
+    name: ssh
+
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jumpserver
+  namespace: public-service
+spec:
+  resources:
+    requests:
+      storage: 100Gi
+  volumeMode: Filesystem
+  storageClassName: "managed-nfs-storage"
+  accessModes:
+    - ReadWriteOnce
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jumpserver
+  namespace: public-service
+data:
+  SECRET_KEY: dLVqFOL5h2hnJGG2HSFf5QAg2z994SUh4nZB1D5FLcwZ3TkuAA
+  BOOTSTRAP_TOKEN: EhG2inL18Empjm7R
+  DB_HOST: mysql-write
+  DB_PORT: "3306"
+  DB_USER: root
+  DB_PASSWORD: "password"
+  DB_NAME: jumpserver
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: "password"

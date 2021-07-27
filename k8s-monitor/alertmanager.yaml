@@ -1,0 +1,217 @@
+---
+# alertmanager
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-config
+  namespace: ops
+data:
+  config.yml: |-
+    global:
+      # 在没有报警的情况下声明为已解决的时间
+      resolve_timeout: 5m
+      # 配置邮件发送信息
+      smtp_smarthost: 'smtp.exmail.qq.com:465'
+      smtp_from: 'dev@cortexlabs.ai'
+      smtp_auth_username: 'dev@cortexlabs.ai'
+      smtp_auth_password: 'guessWhat!1'
+      smtp_require_tls: false
+    # 所有报警信息进入后的根路由，用来设置报警的分发策略
+    route:
+      # 这里的标签列表是接收到报警信息后的重新分组标签，例如，接收到的报警信息里面有许多具有 cluster=A 和 alertname=LatncyHigh 这样的标签的报警信息将会批量被聚合到一个分组里面
+      group_by: ['area']
+      # 当一个新的报警分组被创建后，需要等待至少group_wait时间来初始化通知，这种方式可以确保您能有足够的时间为同一分组来获取多个警报，然后一起触发这个报警信息。
+      group_wait: 30s
+
+      # 当第一个报警发送后，等待'group_interval'时间来发送新的一组报警信息。
+      group_interval: 5m
+
+      # 如果一个报警信息已经发送成功了，等待'repeat_interval'时间来重新发送他们
+      repeat_interval: 4h
+
+      # 默认的receiver：如果一个报警没有被一个route匹配，则发送给默认的接收器
+      receiver: default
+
+      # 上面所有的属性都由所有子路由继承，并且可以在每个子路由上进行覆盖。
+      routes:
+      - receiver: email
+        group_wait: 10s
+        match:
+          team: node
+      - receiver: defi
+        group_wait: 10s
+        repeat_interval: 1h
+        match:
+          id: defi-exporter
+
+
+    templates:
+    - '/etc/alertmanager/email.tmpl'
+    
+    receivers:
+    - name: 'default'
+      email_configs:
+      - to: 'gssjl2004@126.com'
+        send_resolved: true
+        html: '{{ template "email.html" . }}'
+        headers: { Subject: "报警邮件" }
+    - name: 'email'
+      email_configs:
+      - to: '124535036@qq.com'
+        send_resolved: true
+
+    - name: 'defi'
+      email_configs:
+      - to: 'gssjl2004@126.com'
+        send_resolved: true
+        html: '{{ template "email.html" . }}'
+        headers: { Subject: "报警邮件" }
+      - to: 'achen@cortexlabs.ai'
+        send_resolved: true
+        html: '{{ template "email.html" . }}'
+        headers: { Subject: "报警邮件" }
+      - to: 'dev@cortexlabs.ai'
+        send_resolved: true
+        html: '{{ template "email.html" . }}'
+        headers: { Subject: "报警邮件" }
+      - to: 'liqingnz@gmail.com'
+        send_resolved: true
+        html: '{{ template "email.html" . }}'
+        headers: { Subject: "报警邮件" }
+      - to: 'mickey@cortexlabs.ai'
+        send_resolved: true
+        html: '{{ template "email.html" . }}'
+        headers: { Subject: "报警邮件" }
+      - to: 'wyongze@cortexlabs.ai'
+        send_resolved: true
+        html: '{{ template "email.html" . }}'
+        headers: { Subject: "报警邮件" }
+      - to: 'zhangzelin@cortexlabs.ai'
+        send_resolved: true
+        html: '{{ template "email.html" . }}'
+        headers: { Subject: "报警邮件" }
+      - to: 'johnny96124@gmail.com'
+        send_resolved: true
+        html: '{{ template "email.html" . }}'
+        headers: { Subject: "报警邮件" }
+
+
+
+
+  email.tmpl: |-
+    {{ define "email.html" }}
+    {{- if gt (len .Alerts.Firing) 0 -}}
+    {{- range $index, $alert := .Alerts -}}
+    {{- if eq $index 0 -}}
+    <pre>
+    **********告警通知**********
+    告警类型: {{ $alert.Labels.alertname }}
+    告警级别: {{ $alert.Labels.severity }}
+    {{- end }}
+    =====================
+    告警主题: {{ $alert.Annotations.summary }}
+    告警详情: {{ $alert.Annotations.description }}
+    故障时间: {{ ($alert.StartsAt.Local.Add 28800e9).Format "2006-01-02 15:04:05" }}
+    {{ if gt (len $alert.Labels.instance) 0 -}}
+      故障实例: {{ $alert.Labels.currency }}
+    {{- end -}}
+    {{- end }}
+    {{- end }}
+
+    {{- if gt (len .Alerts.Resolved) 0 -}}
+    {{- range $index, $alert := .Alerts -}}
+    {{- if eq $index 0 -}}
+    </pre>
+    <br>
+    <pre>
+    **********恢复通知**********
+    告警类型: {{ $alert.Labels.alertname }}
+    告警级别: {{ $alert.Labels.severity }}
+    {{- end }}
+    =====================
+    告警主题: {{ $alert.Annotations.summary }}
+    告警详情: {{ $alert.Annotations.description }}
+    故障时间: {{ ($alert.StartsAt.Local.Add 28800e9).Format "2006-01-02 15:04:05" }}
+    恢复时间: {{ $alert.EndsAt.Local }}
+    {{ if gt (len $alert.Labels.instance) 0 -}}
+      故障实例: {{ $alert.Labels.currency }}
+    {{- end -}}
+    </pre>
+    {{- end }}
+    {{- end }}
+    {{- end }}
+
+
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: ops
+spec:
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager
+        args:
+        - "--config.file=/etc/alertmanager/config.yml"
+        - "--storage.path=/alertmanager/data"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 100m
+            memory: 256Mi
+        ports:
+        - containerPort: 9093
+        volumeMounts:
+        - name: config
+          mountPath: /etc/alertmanager
+        - name: data
+          mountPath: /alertmanager/data
+      volumes:
+      - name: config
+        configMap:
+          name: alert-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: alert-pvc
+
+---
+# svc
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: ops
+spec:
+  selector:
+    app: alertmanager
+  ports:
+  - port: 9093
+    targetPort: 9093
+
+---
+# pvc
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alert-pvc
+  namespace: ops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: "managed-nfs-storage"
+  resources:
+    requests:
+      storage: 1Gi

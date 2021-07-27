@@ -1,0 +1,33 @@
+## PV
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgresql
+  labels:
+    app: postgresql
+spec:
+  capacity:          
+    storage: 50Gi
+  accessModes:       
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: 192.168.50.101
+    path: /data/rancher/gitlab/postgresql
+---
+## PVC
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: postgresql
+  namespace: public-service
+spec:
+  resources:
+    requests:
+      storage: 50Gi 
+  accessModes:
+  - ReadWriteOnce
+  selector:
+    matchLabels:
+      app: postgresql
+

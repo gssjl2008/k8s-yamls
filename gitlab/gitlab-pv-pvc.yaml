@@ -1,0 +1,33 @@
+## PV
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gitlab
+  labels:
+    app: gitlab
+spec:
+  capacity:          
+    storage: 100Gi
+  accessModes:       
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: 192.168.50.101
+    path: /data/rancher/gitlab/gitlab
+---
+## PVC
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: gitlab
+  namespace: public-service
+spec:
+  resources:
+    requests:
+      storage: 100Gi
+  accessModes:
+  - ReadWriteOnce
+  selector:
+    matchLabels:
+      app: gitlab
+

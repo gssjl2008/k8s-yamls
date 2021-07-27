@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: freeradius
+  namespace: public-service
+spec:
+  selector:
+    matchLabels:
+      app: freeradius
+  template:
+    metadata:
+      labels:
+        app: freeradius
+    spec:
+      hostNetwork: true
+      containers:
+      - name: freeradius
+        image: gssjl2008/cortex-radius-ldap:latest
+        imagePullPolicy: Always
+        command:
+          - "freeradius"
+        args:
+          - "-X"
+        resources:
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 1812
+          protocol: UDP
+        - containerPort: 1813
+          protocol: UDP
+

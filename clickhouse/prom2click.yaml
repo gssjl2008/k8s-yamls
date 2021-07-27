@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prom2click
+  namespace: ops
+spec:
+  selector:
+    matchLabels:
+      app: prom2click
+  template:
+    metadata:
+      labels:
+        app: prom2click
+    spec:
+      containers:
+      - name: prom2click
+        image: gssjl2008/prom2click
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "/app/prom2click -ch.dsn tcp://clickhouse-svc:9000 -log.level=debug"
+        resources:
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 9201
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prom2click
+  namespace: ops
+spec:
+  selector:
+    app: prom2click
+  ports:
+  - port: 9201
+    targetPort: 9201
+

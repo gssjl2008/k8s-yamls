@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus
+  namespace: public-service
+spec:
+  selector:
+    matchLabels:
+      app: nexus
+  template:
+    metadata:
+      labels:
+        app: nexus
+    spec:
+      containers:
+      - name: nexus
+        image: sonatype/nexus3:latest
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            memory: "4096Mi"
+            cpu: "2048m"
+        ports:
+        - containerPort: 8081
+          name: web
+        - containerPort: 30082
+          name: http
+        # livenessProbe:
+        #   httpGet:
+        #     path: /
+        #     port: 8081
+        #   initialDelaySeconds: 600
+        # readinessProbe:
+        #   httpGet: 
+        #     port: 8081
+        #     path: /
+        #   initialDelaySeconds: 650
+        volumeMounts:
+          - mountPath: /nexus-data
+            name: data
+      volumes:
+        - persistentVolumeClaim:
+            claimName: nexus
+          name: data
+            
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus
+  namespace: public-service
+spec:
+  selector:
+    app: nexus
+  type: NodePort
+  ports:
+  - port: 8081
+    targetPort: 8081
+    nodePort: 30081
+    name: web
+  - port: 30082
+    targetPort: 30082
+    nodePort: 30082
+    name: http
+
+      
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus
+  namespace: public-service
+spec:
+  resources:
+    requests:
+      storage: 100Gi
+  volumeMode: Filesystem
+  storageClassName: "managed-nfs-storage"
+  accessModes:
+    - ReadWriteOnce
+
+
