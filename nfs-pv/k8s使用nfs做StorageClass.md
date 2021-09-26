@@ -100,5 +100,9 @@
   ```shell
   kubectl apply -f class.yaml
   ```
+- 设置默认storageclass
+  ```shell
+  kubectl patch storageclass managed-nfs-storage -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+  ```
 
   
